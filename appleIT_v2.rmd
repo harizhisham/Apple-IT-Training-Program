@@ -1,0 +1,206 @@
+---
+title: "Apple IT Employee Training"
+author: "Hariz Hisham"
+date: "November 14, 2018"
+output: word_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r workspaceSetup}
+# Clear workspace and set directory
+rm(list = ls())
+setwd("C:/Users/mohdh/Documents/MSBA/Fall 2018/OMIS 2392/Case Studies")
+
+# Install packages
+#install.packages("ggplot2")
+#install.packages("gdata")
+#install.packages("stargazer")
+#install.packages("ggeffects")
+#install.packages("QuantPsyc")
+#install.packages("dplyr")
+#install.packages("usdm")
+#install.packages("lmtest")
+
+# Load packages
+library(ggplot2)
+library(gdata)
+library(stargazer)
+library(ggeffects)
+library(QuantPsyc)
+library(dplyr)
+library(usdm)
+library(lmtest)
+
+# turn off scientific notation except for big numbers. 
+options(scipen = 9)
+```
+
+## Data load and preview
+```{r loadData}
+AppleIT = read.csv("AppleIT.csv")
+head(AppleIT)
+
+stargazer(AppleIT, 
+          type = "text", median = TRUE, iqr = TRUE, 
+          digits = 1, title = "Descriptive Statistics")
+```
+
+## Data cleanup and test for multicollinearity
+``` {r initialCleanup}
+# Plot individual variables and check variables for skewness
+ggplot(AppleIT, aes(x = completiontime)) + geom_histogram(colour = "green")
+ggplot(AppleIT, aes(x = log(completiontime))) + geom_histogram(colour = "green")
+AppleIT$logCompletionTime <- log(AppleIT$completiontime)
+
+ggplot(AppleIT, aes(x = scheduledtime)) + geom_histogram(colour = "green")
+ggplot(AppleIT, aes(x = log(scheduledtime))) + geom_histogram(colour = "green")
+AppleIT$logScheduledTime <- log(AppleIT$scheduledtime)
+
+ggplot(AppleIT, aes(x = groupsize)) + geom_histogram(colour = "green")
+ggplot(AppleIT, aes(x = log(groupsize))) + geom_histogram(colour = "green")
+
+ggplot(AppleIT, aes(x = experience)) + geom_histogram(colour = "green")
+ggplot(AppleIT, aes(x = log(experience))) + geom_histogram(colour = "green") 
+
+AppleIT$newit <- as.factor(AppleIT$newit)
+ggplot(AppleIT, aes(x = newit, y = completiontime, fill = newit)) + 
+  geom_boxplot() + 
+  xlab("Completion Time") + 
+  ylab("New IT")
+
+ggplot(AppleIT[AppleIT$completiontime <= 1500,], 
+       aes(x = newit, y = completiontime, fill = newit)) + 
+  geom_boxplot() + 
+  xlab("Completion Time") + 
+  ylab("New IT")
+# Does not visually show any difference between using new vs old IT system
+
+
+multicollinearity.df <- AppleIT[c("logScheduledTime", "newit", "groupsize", 
+                                  "training", "experience", "gender", "height", 
+                                  "weight", "marital", "graddegree")]
+#cor(multicollinearity.df)
+vif(multicollinearity.df)
+# No multicollinearity present
+
+
+```
+
+## Build-up OLS estimator models 
+```{r buildModel}
+# OLS model. Uses log-transformed dependent variable. Include all other variables.
+model0.ols <- lm(logCompletionTime ~ newit + logScheduledTime + 
+                   groupsize + training + I(experience^2) + graddegree + 
+                   marital + gender, 
+                 data = AppleIT)
+
+stargazer(model0.ols, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-0"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001)) 
+
+# Consider alternative model. 
+altmodel0 <- lm((logCompletionTime) ~ newit + logScheduledTime + 
+                  groupsize + training + experience + graddegree + 
+                  marital + gender, 
+                data = AppleIT)
+
+stargazer(model0.ols, altmodel0, 
+          title="Regression Results", type="text", 
+          column.labels=c("Model-0", "Alt-Model"),
+          df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001)) 
+
+# Check for fit
+AIC(model0.ols, altmodel0)
+BIC(model0.ols, altmodel0)
+
+CheckHeteroscedasticity(altmodel0)  # No heteroscedasticity present
+
+```
+
+```{r interactionModel}
+# Interact newit with training
+interactionOLS <- lm((logCompletionTime) ~ newit*training + logScheduledTime + 
+                  groupsize + experience + graddegree + 
+                  marital + gender, 
+                  data = AppleIT)
+
+stargazer(interactionOLS, 
+          title="Regression Results", type = "text", 
+          column.labels = c("Interaction Model"),
+          df = FALSE, digits = 3, star.cutoffs = c(0.05,0.01,0.001))
+
+anova(altmodel0, interactionOLS)  # Interaction model fits better
+
+CheckHeteroscedasticity(interactionOLS)  # No heteroscedasticity
+```
+
+## Marginal effect plots
+```{r marginaleffect}
+mEffectsDf <- ggpredict(interactionOLS, terms = c("newit", "training")) 
+
+ggplot(mEffectsDf, aes(x, predicted, colour = group)) + geom_line(size = 1.3) + 
+    xlab("New IT") + ylab("Predicted log(Completion Time)") +
+    labs(colour = "Training") + 
+    scale_colour_discrete(labels = c("No", "Yes")) +
+    scale_x_continuous(breaks = c(0, 1), labels = c("Old IT", "New IT")) +
+    theme(axis.title.x = element_blank())
+```
+
+# Subset model
+```{r subset}
+# Generate regression results to compare marginal effects of using new IT
+# between trained and untrained employees
+treatmentGroupDf <- subset(AppleIT, training == 1)
+
+treatmentGroupOLS <- lm((logCompletionTime) ~ newit + logScheduledTime + 
+                          groupsize + experience + 
+                          graddegree + marital + gender, 
+                        data = treatmentGroupDf)
+
+controlGroupDf <- subset(AppleIT, training == 0)
+
+controlGroupOLS <- lm((logCompletionTime) ~ newit + logScheduledTime + 
+                        groupsize + experience + 
+                        graddegree + marital + gender, 
+                        data = controlGroupDf)
+
+CheckHeteroscedasticity(treatmentGroupOLS)
+
+stargazer(controlGroupOLS, treatmentGroupOLS, 
+          title = "Regression Results", type = "text", 
+          column.labels = c("Control Group", "Treatment Group"),
+          df = FALSE, digits = 3, star.cutoffs = c(0.05,0.01,0.001))
+```
+
+```{r heteroscedasticityTest}
+CheckHeteroscedasticity <- function(model, plot = TRUE, point_size = 2.5) {
+  # Computes and plots the residuals for a model.
+  # Also conducts GQ and BP test for user to determine heteroscedasticity 
+  # of a model.
+  #
+  # Args:
+  #   model: Estimated model of which heteroscedasticity is to be tested.
+  #   plot: if TRUE, generates scatter-plot of residuals.
+  #   point_size: size of individual scatter-plot points.
+  #
+  # Returns:
+  #   Results of GQ & BP test and scatter-plot of residuals for visual check 
+  #   for heteroscedasticity.
+  #
+  # Error handling
+  if (is.data.frame(model)) {
+    stop("Invalid model used. Make sure you're using a fitted model data type.")
+  }
+  pred <- predict(model)  # obtain fitted values
+  res <- resid(model)  # obtain residual
+  df <- data.frame(pred, res)
+  if (plot) {
+    print((ggplot(df, aes(y = res, x = pred)) + geom_point(size = point_size)))
+  }
+  print(gqtest(model))
+  print(bptest(model))
+}
+
+```
