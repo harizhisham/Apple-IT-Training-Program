@@ -2,7 +2,7 @@
 title: "Apple IT Employee Training"
 author: "Hariz Hisham"
 date: "November 14, 2018"
-output: word_document
+output: rmarkdown::github_document
 editor_options: 
   chunk_output_type: console
 ---
@@ -63,14 +63,14 @@ ggplot(AppleIT, aes(x = log(groupsize))) + geom_histogram(colour = "green")
 ggplot(AppleIT, aes(x = experience)) + geom_histogram(colour = "green")
 ggplot(AppleIT, aes(x = log(experience))) + geom_histogram(colour = "green") 
 
-AppleIT$newit <- as.factor(AppleIT$newit)
-ggplot(AppleIT, aes(x = newit, y = completiontime, fill = newit)) + 
+AppleIT$factorNewIT <- as.factor(AppleIT$newit)
+ggplot(AppleIT, aes(x = factorNewIT, y = completiontime, fill = factorNewIT)) + 
   geom_boxplot() + 
   xlab("Completion Time") + 
   ylab("New IT")
 
 ggplot(AppleIT[AppleIT$completiontime <= 1500,], 
-       aes(x = newit, y = completiontime, fill = newit)) + 
+       aes(x = factorNewIT, y = completiontime, fill = factorNewIT)) + 
   geom_boxplot() + 
   xlab("Completion Time") + 
   ylab("New IT")
@@ -80,17 +80,16 @@ ggplot(AppleIT[AppleIT$completiontime <= 1500,],
 multicollinearity.df <- AppleIT[c("logScheduledTime", "newit", "groupsize", 
                                   "training", "experience", "gender", "height", 
                                   "weight", "marital", "graddegree")]
-#cor(multicollinearity.df)
+cor(multicollinearity.df)
 vif(multicollinearity.df)
 # No multicollinearity present
-
 
 ```
 
 ## Build-up OLS estimator models 
 ```{r buildModel}
-# OLS model. Uses log-transformed dependent variable. Include all other variables.
-model0.ols <- lm(logCompletionTime ~ newit + logScheduledTime + 
+# OLS model. Uses log-transformed dependent variable.
+model0.ols <- lm(logCompletionTime ~ factorNewIT + logScheduledTime + 
                    groupsize + training + I(experience^2) + graddegree + 
                    marital + gender, 
                  data = AppleIT)
@@ -101,7 +100,7 @@ stargazer(model0.ols,
           df=FALSE, digits=3, star.cutoffs = c(0.05,0.01,0.001)) 
 
 # Consider alternative model. 
-altmodel0 <- lm((logCompletionTime) ~ newit + logScheduledTime + 
+altmodel0 <- lm((logCompletionTime) ~ factorNewIT + logScheduledTime + 
                   groupsize + training + experience + graddegree + 
                   marital + gender, 
                 data = AppleIT)
@@ -120,8 +119,8 @@ CheckHeteroscedasticity(altmodel0)  # No heteroscedasticity present
 ```
 
 ```{r interactionModel}
-# Interact newit with training
-interactionOLS <- lm((logCompletionTime) ~ newit*training + logScheduledTime + 
+# Interact factorNewIT with training
+interactionOLS <- lm((logCompletionTime) ~ factorNewIT*training + logScheduledTime + 
                   groupsize + experience + graddegree + 
                   marital + gender, 
                   data = AppleIT)
@@ -138,7 +137,7 @@ CheckHeteroscedasticity(interactionOLS)  # No heteroscedasticity
 
 ## Marginal effect plots
 ```{r marginaleffect}
-mEffectsDf <- ggpredict(interactionOLS, terms = c("newit", "training")) 
+mEffectsDf <- ggpredict(interactionOLS, terms = c("factorNewIT", "training")) 
 
 ggplot(mEffectsDf, aes(x, predicted, colour = group)) + geom_line(size = 1.3) + 
     xlab("New IT") + ylab("Predicted log(Completion Time)") +
@@ -154,14 +153,14 @@ ggplot(mEffectsDf, aes(x, predicted, colour = group)) + geom_line(size = 1.3) +
 # between trained and untrained employees
 treatmentGroupDf <- subset(AppleIT, training == 1)
 
-treatmentGroupOLS <- lm((logCompletionTime) ~ newit + logScheduledTime + 
+treatmentGroupOLS <- lm((logCompletionTime) ~ factorNewIT + logScheduledTime + 
                           groupsize + experience + 
                           graddegree + marital + gender, 
                         data = treatmentGroupDf)
 
 controlGroupDf <- subset(AppleIT, training == 0)
 
-controlGroupOLS <- lm((logCompletionTime) ~ newit + logScheduledTime + 
+controlGroupOLS <- lm((logCompletionTime) ~ factorNewIT + logScheduledTime + 
                         groupsize + experience + 
                         graddegree + marital + gender, 
                         data = controlGroupDf)
@@ -172,6 +171,12 @@ stargazer(controlGroupOLS, treatmentGroupOLS,
           title = "Regression Results", type = "text", 
           column.labels = c("Control Group", "Treatment Group"),
           df = FALSE, digits = 3, star.cutoffs = c(0.05,0.01,0.001))
+
+#-------------------------------------------------------------------------------
+# Compared to employees who did not opt for the optional IT training program, 
+# employees who did are observed to reduce project completion time by ~6.4%
+# when using the new IT system.
+#-------------------------------------------------------------------------------
 ```
 
 ```{r heteroscedasticityTest}
